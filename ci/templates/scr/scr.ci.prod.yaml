@@ -1,0 +1,86 @@
+check scr rancher:
+  extends: .check rancher
+  variables:
+    ENV_FILE: "ci/templates/scr/.env"
+  tags:
+    - qa
+    - apis
+  only:
+    refs:
+      - master
+    variables:
+      - $TARGET_PIPELINE =~ /scr/
+
+check scr registry:
+  extends: .check registry
+  variables:
+    ENV_FILE: "ci/templates/scr/.env"
+  tags:
+    - qa
+    - apis
+  only:
+    refs:
+      - master
+    variables:
+      - $TARGET_PIPELINE =~ /scr/
+
+package scr:
+  extends: .package
+  tags:
+    - qa
+    - apis
+  variables:
+    ENV_FILE: "ci/templates/scr/.env"
+  only:
+    refs:
+      - master
+    variables:
+      - $TARGET_PIPELINE =~ /scr/
+
+build scr:
+  extends: .build
+  variables:
+    ENV_FILE: "ci/templates/scr/.env"
+  tags:
+    - qa
+    - apis
+  only:
+    refs:
+      - master
+    variables:
+      - $TARGET_PIPELINE =~ /scr/
+
+deploy scr:
+  extends: .deploy
+  tags:
+    - qa
+    - apis
+  variables:
+    ENV_FILE: "ci/templates/scr/.env"
+  only:
+    refs:
+      - master
+    variables:
+      - $TARGET_PIPELINE =~ /scr/
+
+ticket scr:
+  extends: .ticket
+  tags:
+    - qa
+    - apis
+  variables:
+    ENV_FILE: "ci/templates/scr/.env"
+  script:
+    - source ${ENV_FILE}
+    - |
+      /opt/SoapUI-Pro-5.1.1/bin/testrunner.sh -s ${TICKET_SR} -c ${TICKET_NUEVO_SR} -R "${TICKET_REPORT}" -E ${TICKET_ENVIRONMENT} \
+      -u ${SOAPUI_USERNAME} -p ${SOAPUI_PASSWORD} \
+      -P usuario="${TICKET_USUARIO}" -P ci="${TICKET_CI}" \
+      -P descripcion="despliegue de API ${K8S_APP_APPLICATION} ejecutado por ${GITLAB_USER_NAME}" -P ci="${TICKET_CI}" \
+      -P descripcionlong="Despliegue de API ${K8S_APP_APPLICATION} version ${K8S_APP_VERSION} ${K8S_CONTAINERS_IMAGE}. resultado sonarQube ${SONAR_HOST}dashboard?id=${SONARNAME}" \
+      ${TICKET_FILE}
+  only:
+    refs:
+      - master
+    variables:
+      - $TARGET_PIPELINE =~ /scr/

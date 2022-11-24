@@ -1,0 +1,617 @@
+.check rancher:
+  image: $REGISTRY/cicd/kubectl:1.1-envsubst
+  stage: .pre
+  variables:
+    RED: "\e[91m"
+    NC: "\e[39m"
+    YELLOW: "\e[93m"
+    KUBECONFIG: ".kube/config"
+  tags:
+    - qa
+    - apis
+  script:
+    - source ${ENV_FILE}
+    - mkdir .kube
+    - cp manifests/templates/common-configs/rancher-project.json temp.json
+    - cp manifests/templates/common-configs/rancher-namespace.json tempns.json
+    - cp manifests/templates/common-configs/rancher-member.json tempm.json
+    - echo $KUBE_CONFIG > /tmp/config
+    - base64 -d /tmp/config > .kube/config
+    - |
+      echo "[INFO] Checking Production Cluster ${RANCHER_HOST}"
+      response=$(curl -Ss -k -u ${ACCESS_KEY}:${SECRET_KEY} https://${RANCHER_HOST}/v3/projects?name=${K8S_APP_PROJECT} | jq -r '.data')
+      if [ "${response}" != "[]" ]; then
+        echo "[INFO] Rancher Project ${K8S_APP_PROJECT} ${GREEN}exists${NC}"
+        cluster_id=$(curl -k -u ${ACCESS_KEY}:${SECRET_KEY} https://${RANCHER_HOST}/v3/clusters?name=${SRV_CLUSTER} | jq -r '.data[].id')
+        ns_response=$(curl -k -u ${ACCESS_KEY}:${SECRET_KEY} https://${RANCHER_HOST}/v3/cluster/${cluster_id}/namespaces/?name=${K8S_NAMESPACE} | jq -r '.data')
+        if [ "${ns_response}" != "[]" ]; then
+          echo "[INFO] Namespace ${K8S_NAMESPACE} ${GREEN}exists${NC}"
+          kubectl create secret -n ${K8S_NAMESPACE} docker-registry regcred --docker-server=$REGISTRY --docker-username=$DOCKER_USER --docker-password=$DOCKER_PASSWORD --dry-run=client -o yaml | kubectl apply -f -
+          kubectl patch sa default -n ${K8S_NAMESPACE} --patch '{"imagePullSecrets": [{"name":"regcred"}]}'
+        else
+          echo "[INFO] Namespace ${K8S_NAMESPACE} ${RED}not found... ${NC}Creating Namespace"
+          project_id=$(curl -k -u ${ACCESS_KEY}:${SECRET_KEY} https://${RANCHER_HOST}/v3/projects | jq '.data[] | select(.name=="'"${K8S_APP_PROJECT}"'") | "\(.id)"' | sed 's|"||g')
+          jq --arg id "$project_id" --arg name "${K8S_NAMESPACE}" '.projectId=$id | .name=$name' tempns.json > ns.json
+          curl -X POST -k https://${RANCHER_HOST}/v3/cluster/${cluster_id}/namespaces -u ${ACCESS_KEY}:${SECRET_KEY} -H 'Accept: application/json' -H 'Content-Type: application/json' -d @ns.json
+          kubectl config get-contexts
+          kubectl config current-context
+          kubectl create secret -n ${K8S_NAMESPACE} docker-registry regcred --docker-server=$REGISTRY --docker-username=$DOCKER_USER --docker-password=$DOCKER_PASSWORD --dry-run=client -o yaml | kubectl apply -f -
+          kubectl patch sa default -n ${K8S_NAMESPACE} --patch '{"imagePullSecrets": [{"name":"regcred"}]}'
+        fi
+      else
+        echo "[INFO] Project ${K8S_APP_PROJECT} ${RED}not found... ${NC}Creating Rancher Project"
+        cluster_id=$(curl -k -u ${ACCESS_KEY}:${SECRET_KEY} https://${RANCHER_HOST}/v3/clusters?name=${SRV_CLUSTER} | jq -r '.data[].id')
+        jq --arg id "$cluster_id" --arg name "${K8S_APP_PROJECT}" '.clusterId=$id | .name=$name' temp.json > project.json
+        curl -X POST -k https://${RANCHER_HOST}/v3/projects -u ${ACCESS_KEY}:${SECRET_KEY} -H 'Accept: application/json' -H 'Content-Type: application/json' -d @project.json
+        echo "[INFO] Creating Namespace ${K8S_NAMESPACE}"
+        project_id=$(curl -k -u ${ACCESS_KEY}:${SECRET_KEY} https://${RANCHER_HOST}/v3/projects | jq '.data[] | select(.name=="'"${K8S_APP_PROJECT}"'") | "\(.id)"' | sed 's|"||g')
+        jq --arg id "$project_id" --arg name "${K8S_NAMESPACE}" '.projectId=$id | .name=$name' tempns.json > ns.json
+        curl -X POST -k https://${RANCHER_HOST}/v3/cluster/${cluster_id}/namespaces -u ${ACCESS_KEY}:${SECRET_KEY} -H 'Accept: application/json' -H 'Content-Type: application/json' -d @ns.json
+        user_id=$(curl -k -u ${ACCESS_KEY}:${SECRET_KEY} https://${RANCHER_HOST}/v3/users/ | jq -r '.data[] | select (.username == "gitlab-ci") | .id')
+        jq --arg id "$project_id" --arg user "$user_id" '.projectId=$id | .userId=$user' tempm.json > member.json
+        curl -k -u ${ACCESS_KEY}:${SECRET_KEY} https://${RANCHER_HOST}/v3/projectRoleTemplateBindings/ -X POST -H 'Accept: application/json' -H 'Content-Type: application/json' -d @member.json
+        echo "[INFO] Creating Secret for Registry"
+        kubectl config get-contexts
+        kubectl config current-context
+        kubectl create secret -n ${K8S_NAMESPACE} docker-registry regcred --docker-server=$REGISTRY --docker-username=$DOCKER_USER --docker-password=$DOCKER_PASSWORD --dry-run=client -o yaml | kubectl apply -f -
+        kubectl patch sa default -n ${K8S_NAMESPACE} --patch '{"imagePullSecrets": [{"name":"regcred"}]}'
+      fi
+
+.check registry:
+  image: $REGISTRY/cicd/git-cli:1.0
+  stage: .pre
+  tags:
+    - qa
+    - apis
+  environment:
+    name: prod
+  script:
+    - source ${ENV_FILE}
+    - cp manifests/templates/common-configs/harbor-retention.json temp.json
+    - |
+      ID=$(curl -k https://${REGISTRY}/api/v2.0/projects?page_size=0 -H "authorization: Basic $REGISTRY_TOKEN" -H "accept: application/json" | jq -r '.[] | select(.name=="'"${K8S_REGISTRY_PROJECT}"'") | "\(.project_id)"')
+      echo $ID
+    - |
+      if [[ ! -z "$ID" ]]; then
+
+      echo "[INFO] Harbor Project already ${GREEN}exists"
+
+      else
+        echo "[INFO] Project ${K8S_REGISTRY_PROJECT} ${RED}not found... ${NC}Creating Harbor Project"
+        curl -k -X POST https://${REGISTRY}/api/v2.0/projects -H "accept: application/json" -H "authorization: Basic ${REGISTRY_TOKEN}" -H "Content-Type: application/json" -d '{ "project_name": "'"${K8S_REGISTRY_PROJECT}"'", "storage_limit": 1, "public": false }'
+        ID=$(curl -k https://${REGISTRY}/api/v2.0/projects?page_size=0 -H "authorization: Basic $REGISTRY_TOKEN" -H "accept: application/json" | jq -r '.[] | select(.name=="'"${K8S_REGISTRY_PROJECT}"'") | "\(.project_id)"')
+        jq --argjson id "$ID" '.scope.ref=$id' temp.json > retention.json
+        cat retention.json
+        echo "[INFO] Applying retentions policy for ${K8S_REGISTRY_PROJECT}"
+        curl -X POST -k https://${REGISTRY}/api/v2.0/retentions/ -H "accept: application/json" -H "authorization: Basic ${REGISTRY_TOKEN}" -H "Content-Type: application/json" -d @retention.json
+      fi
+
+.analyze:
+  image: ${MAVEN_IMAGE}
+  stage: analyze					   
+  tags:
+    - dev
+    - apis
+  cache:
+    key: "${CI_JOB_NAME}"
+    paths:
+      - .sonar/cache
+      - $CI_PROJECT_DIR/.m2/repository/
+  before_script:
+    - echo $SETTINGS > settings.xml
+  script:
+    - set -x
+    - mvn -s settings.xml verify sonar:sonar $SONAR_OPTS
+
+.policy-control:
+  stage: analyze
+  tags:
+    - dev
+    - apis
+  image:
+    name: $REGISTRY/cicd/conftest:v0.23.0
+    entrypoint:
+      - ""
+  artifacts:
+    reports:
+      junit: policy_results.xml
+  script:
+    - conftest test -p manifests/templates/common-configs/conftest-policy.rego manifests/templates/deployment-templates.yaml --combine --output=junit > policy_results.xml
+
+.unit-test:
+  image: ${MAVEN_IMAGE}
+  stage: unit-test
+  tags:
+    - dev
+    - apis
+  cache:
+    key: "${CI_JOB_NAME}"
+    paths:
+      - $CI_PROJECT_DIR/.m2/repository/
+  variables:
+    SPRING_PROFILES_ACTIVE: ${K8S_APP_ENVIRONMENT}
+  before_script:
+    - echo $SETTINGS > settings.xml
+  script:
+    - mvn -s settings.xml test -P unit
+  artifacts:
+    when: always
+    reports:
+      junit:
+        - target/surefire-reports/TEST-*.xml
+        - target/failsafe-reports/TEST-*.xml
+
+
+.package:
+  stage: package
+  image: ${MAVEN_IMAGE}
+  tags:
+    - dev
+    - apis
+  cache:
+    key: "${CI_JOB_NAME}"
+    paths:
+      - $CI_PROJECT_DIR/.m2/repository/
+  before_script:
+    - echo $SETTINGS > settings.xml
+  script:
+    - source ${ENV_FILE}
+    - mvn -s settings.xml package -DskipTests
+    - cat docker/Dockerfile | envsubst "$(env | sed -e 's/=.*//' -e 's/^/\$/g')" > Dockerfile.${CLUSTER}-${K8S_DEPLOYMENT_NAME}
+    - cp Dockerfile.${CLUSTER}-${K8S_DEPLOYMENT_NAME} docker/Dockerfile.${CLUSTER}-${K8S_DEPLOYMENT_NAME}
+  artifacts:
+    paths:
+      - target/
+      - docker/
+    expire_in: 2 hours
+
+.build:
+  image:
+    name: $REGISTRY/cicd/kaniko:debug
+    entrypoint: [""]
+  stage: build
+  tags:
+    - dev
+    - apis  
+  script:
+    - source ${ENV_FILE}
+    - mkdir -p /kaniko/.docker
+    - echo "{\"auths\":{\"$REGISTRY\":{\"username\":\"$DOCKER_USER\",\"password\":\"$DOCKER_PASSWORD\"}}}" > /kaniko/.docker/config.json
+    - /kaniko/executor --context . --dockerfile docker/Dockerfile.${CLUSTER}-${K8S_DEPLOYMENT_NAME} --destination $K8S_CONTAINERS_IMAGE --skip-tls-verify $KANIKO_ARGS --image-fs-extract-retry 5
+
+.repo tag:
+  stage: promote
+  tags:
+    - qa
+    - apis
+  variables:
+    RED: "\e[91m"
+    GREEN: "\e[92m"
+    NC: "\e[39m"
+    YELLOW: "\e[93m"
+    BLUE: "\e[94m"
+    NS_ARGO: "argocd"
+  image:
+    name: $REGISTRY/cicd/git-cli:1.0-envsubst
+  script:
+    - url_host=`git remote get-url origin | sed -e "s/http:\/\/gitlab-ci-token:.*@//g"`
+    - git remote set-url origin "http://gitlab-ci-token:${PROJECT_TOKEN}@${url_host}"
+    - git fetch origin ${BRANCH}
+    - git fetch --all --tags
+    - git checkout ${BRANCH} --
+    - git config --global user.name "$GITLAB_USER_NAME"
+    - git config --global user.email "$GITLAB_USER_EMAIL"
+    - |
+      if [[ "$(git describe --tags $(git rev-list --tags --max-count=1) --match "v[0-9][.]*")" ]]; then
+        FULL_TAG=$(git describe --tags $(git rev-list --tags --max-count=1) --match "v[0-9][.]*")
+      else
+        FULL_TAG=''
+      fi
+    - CURRENT_VERSION=$(echo $FULL_TAG | sed 's/v//g')
+    - DOTAG=yes
+    - |
+      if [[ $CURRENT_VERSION == '' ]]; then
+        CURRENT_VERSION='1.0.0'
+        DOTAG=no
+      fi
+      if [[ $CURRENT_VERSION == *"hotfix"* ]]; then
+        CURRENT_VERSION=$(echo "$CURRENT_VERSION" | sed 's/-.*//g')
+      fi
+    - echo "Current Tag:${BLUE}v${CURRENT_VERSION}"
+    - |
+      LAST_BRANCH=$(git show-branch --current | head -n1)
+      echo $LAST_BRANCH
+      if [[ $LAST_BRANCH == *"hotfix"* ]]; then
+        HOTFIX_BRANCH=$(git show-branch --current | head -n1 | sed "s|^[^ ]*||g" | sed "s|^[^']*||g" | sed 's| into.*||g' | sed "s|'||g")
+        CURRENT_VERSION=${CURRENT_VERSION}-${HOTFIX_BRANCH}
+        echo $CURRENT_VERSION
+        DOTAG=no
+      fi
+
+      VERSION_PARTS=(${CURRENT_VERSION//./ })
+
+      VNUM1=${VERSION_PARTS[0]}
+      VNUM2=${VERSION_PARTS[1]}
+      VNUM3=${VERSION_PARTS[2]}
+
+      if [[ $DOTAG == 'yes' ]]; then
+        if [[ $VERSION == 'major' ]]; then
+          VNUM1=$((VNUM1+1))
+          VNUM2=0
+          VNUM3=0
+        elif [[ $VERSION == 'minor' ]]; then
+          VNUM2=$((VNUM2+1))
+          VNUM3=0
+        elif [[ $VERSION == 'patch' ]]; then
+          VNUM3=$((VNUM3+1))
+        else
+          echo "${RED}[ERROR] ${NC}No version type ${YELLOW}(https://semver.org/)"
+          exit 1
+        fi
+        NEW_TAG="$VNUM1.$VNUM2.$VNUM3"
+        #sed -i "s/\<TAG\>/$NEW_TAG/g" ${SRC_PATH}kubernetes-resources.yaml
+      else
+        NEW_TAG="$CURRENT_VERSION"
+        #sed -i "s/\<TAG\>/$NEW_TAG/g" ${SRC_PATH}kubernetes-resources.yaml
+      fi
+
+      if [[ $TARGET_PIPELINE =~ [,] ]]; then
+        echo $TARGET_PIPELINE | sed -n 1'p' | tr ',' '\n' | while read word; do
+          w=$(echo $word)
+          source ci/templates/$w/.env
+          echo "rules start"
+          echo "${K8S_INGRESS_HOST//[^,]}"
+          rules="${K8S_INGRESS_HOST//[^,]}"
+          echo "$rules"
+          echo "rules end"
+          mkdir -p manifests/$w
+          tee manifests/$w/kubernetes-resources.yaml < manifests/templates/deployment-templates.yaml
+          if [ ${#rules} -eq 0 ]; then
+            echo "if"
+            envsubst < manifests/templates/deployment-templates.yaml > manifests/$w/kubernetes-resources.yaml
+          elif [ ${#rules} > 0 ]; then
+            echo "elif"
+            sed -i 18,25d manifests/$w/kubernetes-resources.yaml
+            ITER=0
+            for i in $(echo $K8S_INGRESS_HOST | tr "," "\n")
+            do
+              export K8S_INGRESS_HOST_CUSTOM="$i"
+              echo "\n ${ITER} ${K8S_INGRESS_HOST_CUSTOM} \n"
+              ITER=$(expr $ITER + 1)
+              tee manifests/$w/rules-custom-${ITER}.yaml < manifests/templates/common-configs/rules-custom.yaml
+              envsubst < manifests/templates/common-configs/rules-custom.yaml > manifests/$w/rules-custom-${ITER}.yaml
+              echo "\n"
+            done
+            LINE_DES=17
+            for i in $(ls manifests/$w/rules-custom-*)
+            do
+              sed -i "$LINE_DES r $i" manifests/$w/kubernetes-resources.yaml
+              LINE_DES=$(expr $LINE_DES + 8)
+            done
+            for i in $(ls manifests/$w/rules-custom-*)
+            do
+              rm -rf $i
+            done
+            for i in $(ls 0*)
+            do
+              rm -rf $i
+            done
+            envsubst < manifests/$w/kubernetes-resources.yaml > manifests/$w/kubernetes-resources-temp.yaml
+            mv manifests/$w/kubernetes-resources-temp.yaml manifests/$w/kubernetes-resources.yaml
+          fi
+          envsubst < manifests/templates/deployment-templates.yaml > manifests/$w/kubernetes-resources.yaml
+          sed -i "s/\<TAG\>/$NEW_TAG/g" manifests/$w/kubernetes-resources.yaml
+          if grep -q -F 'export ARGOCD_PATH' ci/templates/$w/.env; then
+            sed -i 's|export ARGOCD_PATH.*|export ARGOCD_PATH="manifests/'$w'"|g' ci/templates/$w/.env
+          else
+            echo 'export ARGOCD_PATH="manifests/'$w'"' >> ci/templates/$w/.env
+          fi
+        done
+      elif [[ ! -z "$TARGET_PIPELINE" ]]; then
+        w=$(echo $TARGET_PIPELINE)
+        source ci/templates/$w/.env
+        echo "rules start"
+        echo "${K8S_INGRESS_HOST//[^,]}"
+        rules="${K8S_INGRESS_HOST//[^,]}"
+        echo "$rules"
+        echo "rules end"
+        mkdir -p manifests/$w
+        tee manifests/$w/kubernetes-resources.yaml < manifests/templates/deployment-templates.yaml
+        if [ ${#rules} -eq 0 ]; then
+          echo "if"
+          envsubst < manifests/templates/deployment-templates.yaml > manifests/$w/kubernetes-resources.yaml
+        elif [ ${#rules} > 0 ]; then
+          echo "elif"
+          sed -i 18,25d manifests/$w/kubernetes-resources.yaml
+          ITER=0
+          for i in $(echo $K8S_INGRESS_HOST | tr "," "\n")
+          do
+            export K8S_INGRESS_HOST_CUSTOM="$i"
+            echo "\n ${ITER} ${K8S_INGRESS_HOST_CUSTOM} \n"
+            ITER=$(expr $ITER + 1)
+            tee manifests/$w/rules-custom-${ITER}.yaml < manifests/templates/common-configs/rules-custom.yaml
+            envsubst < manifests/templates/common-configs/rules-custom.yaml > manifests/$w/rules-custom-${ITER}.yaml
+            echo "\n"
+          done
+          LINE_DES=17
+          for i in $(ls manifests/$w/rules-custom-*)
+          do
+            sed -i "$LINE_DES r $i" manifests/$w/kubernetes-resources.yaml
+            LINE_DES=$(expr $LINE_DES + 8)
+          done
+          for i in $(ls manifests/$w/rules-custom-*)
+          do
+            rm -rf $i
+          done
+          for i in $(ls 0*)
+          do
+            rm -rf $i
+          done
+          envsubst < manifests/$w/kubernetes-resources.yaml > manifests/$w/kubernetes-resources-temp.yaml
+          mv manifests/$w/kubernetes-resources-temp.yaml manifests/$w/kubernetes-resources.yaml
+        fi
+        sed -i "s/\<TAG\>/$NEW_TAG/g" manifests/$w/kubernetes-resources.yaml
+        if grep -q -F 'export ARGOCD_PATH' ci/templates/$w/.env; then
+          sed -i 's|export ARGOCD_PATH.*|export ARGOCD_PATH="manifests/'$w'"|g' ci/templates/$w/.env
+        else
+          echo 'export ARGOCD_PATH="manifests/'$w'"' >> ci/templates/$w/.env
+        fi
+      fi
+
+      FULL_NEW_TAG="v$NEW_TAG"
+      echo "${YELLOW}[INFO] Updating from $FULL_TAG to $FULL_NEW_TAG${NC}"
+
+      git add manifests ci/templates
+      git restore docker/Dockerfile
+      git commit -m "Manifests updated for ${FULL_NEW_TAG}"
+      git push -o ci.skip
+
+      NEEDS_TAG=$(git tag -l --contains $CI_COMMIT_SHA)
+
+      if [ -z "$NEEDS_TAG" ]; then
+        git tag -a $FULL_NEW_TAG -m "$CI_COMMIT_TITLE"
+        git push --tags
+        echo "FULL_NEW_TAG=v$NEW_TAG" >> tag.env
+      else
+        echo "${YELLOW}[INFO] ${NC}Already a tag on this commit ${YELLOW}${CI_COMMIT_SHORT_SHA}"
+      fi
+
+.repo commit:
+  stage: promote
+  image:
+    name: $REGISTRY/cicd/git-cli:1.0-envsubst
+  tags:
+    - dev
+    - bp
+  script:
+    - |
+      if [[ $TARGET_PIPELINE =~ [,] ]]; then
+        echo $TARGET_PIPELINE | sed -n 1'p' | tr ',' '\n' | while read word; do
+          w=$(echo $word)
+          source ci/templates/$w/.env
+          echo "rules start"
+          echo "${K8S_INGRESS_HOST//[^,]}"
+          rules="${K8S_INGRESS_HOST//[^,]}"
+          echo "$rules"
+          echo "rules end"
+          mkdir -p manifests/$w
+          tee manifests/$w/kubernetes-resources.yaml < manifests/templates/deployment-templates.yaml
+          if [ ${#rules} -eq 0 ]; then
+            echo "if"
+            envsubst < manifests/templates/deployment-templates.yaml > manifests/$w/kubernetes-resources.yaml
+          elif [ ${#rules} > 0 ]; then
+            echo "elif"
+            sed -i 18,25d manifests/$w/kubernetes-resources.yaml
+            ITER=0
+            for i in $(echo $K8S_INGRESS_HOST | tr "," "\n")
+            do
+              export K8S_INGRESS_HOST_CUSTOM="$i"
+              echo "\n ${ITER} ${K8S_INGRESS_HOST_CUSTOM} \n"
+              ITER=$(expr $ITER + 1)
+              tee manifests/$w/rules-custom-${ITER}.yaml < manifests/templates/common-configs/rules-custom.yaml
+              envsubst < manifests/templates/common-configs/rules-custom.yaml > manifests/$w/rules-custom-${ITER}.yaml
+              echo "\n"
+            done
+            LINE_DES=17
+            for i in $(ls manifests/$w/rules-custom-*)
+            do
+              sed -i "$LINE_DES r $i" manifests/$w/kubernetes-resources.yaml
+              LINE_DES=$(expr $LINE_DES + 8)
+            done
+            for i in $(ls manifests/$w/rules-custom-*)
+            do
+              rm -rf $i
+            done
+            for i in $(ls 0*)
+            do
+              rm -rf $i
+            done
+            envsubst < manifests/$w/kubernetes-resources.yaml > manifests/$w/kubernetes-resources-temp.yaml
+            mv manifests/$w/kubernetes-resources-temp.yaml manifests/$w/kubernetes-resources.yaml
+          fi
+          sed -i "s/\<TAG\>/$NEW_TAG/g" manifests/$w/kubernetes-resources.yaml
+          if grep -q -F 'export ARGOCD_PATH' ci/templates/$w/.env; then
+            sed -i 's|export ARGOCD_PATH.*|export ARGOCD_PATH="manifests/'$w'"|g' ci/templates/$w/.env
+          else
+            echo 'export ARGOCD_PATH="manifests/'$w'"' >> ci/templates/$w/.env
+          fi
+        done
+      elif [[ ! -z "$TARGET_PIPELINE" ]]; then
+        w=$(echo $TARGET_PIPELINE)
+        source ci/templates/$w/.env
+        echo "rules start"
+        echo "${K8S_INGRESS_HOST//[^,]}"
+        rules="${K8S_INGRESS_HOST//[^,]}"
+        echo "$rules"
+        echo "rules end"
+        mkdir -p manifests/$w
+        tee manifests/$w/kubernetes-resources.yaml < manifests/templates/deployment-templates.yaml
+        if [ ${#rules} -eq 0 ]; then
+          echo "if"
+          envsubst < manifests/templates/deployment-templates.yaml > manifests/$w/kubernetes-resources.yaml
+        elif [ ${#rules} > 0 ]; then
+          echo "elif"
+          sed -i 18,25d manifests/$w/kubernetes-resources.yaml
+          ITER=0
+          for i in $(echo $K8S_INGRESS_HOST | tr "," "\n")
+          do
+            export K8S_INGRESS_HOST_CUSTOM="$i"
+            echo "\n ${ITER} ${K8S_INGRESS_HOST_CUSTOM} \n"
+            ITER=$(expr $ITER + 1)
+            tee manifests/$w/rules-custom-${ITER}.yaml < manifests/templates/common-configs/rules-custom.yaml
+            envsubst < manifests/templates/common-configs/rules-custom.yaml > manifests/$w/rules-custom-${ITER}.yaml
+            echo "\n"
+          done
+          LINE_DES=17
+          for i in $(ls manifests/$w/rules-custom-*)
+          do
+            sed -i "$LINE_DES r $i" manifests/$w/kubernetes-resources.yaml
+            LINE_DES=$(expr $LINE_DES + 8)
+          done
+          for i in $(ls manifests/$w/rules-custom-*)
+          do
+            rm -rf $i
+          done
+          for i in $(ls 0*)
+          do
+            rm -rf $i
+          done
+          envsubst < manifests/$w/kubernetes-resources.yaml > manifests/$w/kubernetes-resources-temp.yaml
+          mv manifests/$w/kubernetes-resources-temp.yaml manifests/$w/kubernetes-resources.yaml
+        fi
+        sed -i "s/\<TAG\>/$NEW_TAG/g" manifests/$w/kubernetes-resources.yaml
+        if grep -q -F 'export ARGOCD_PATH' ci/templates/$w/.env; then
+          sed -i 's|export ARGOCD_PATH.*|export ARGOCD_PATH="manifests/'$w'"|g' ci/templates/$w/.env
+        else
+          echo 'export ARGOCD_PATH="manifests/'$w'"' >> ci/templates/$w/.env
+        fi
+      fi
+      
+      url_host=`git remote get-url origin | sed -e "s/http:\/\/gitlab-ci-token:.*@//g"`
+
+      git remote set-url origin "http://gitlab-ci-token:${PROJECT_TOKEN}@${url_host}"
+
+      git checkout ${CI_COMMIT_REF_NAME} --
+
+      git config --global user.name "$GITLAB_USER_NAME"
+
+      git config --global user.email "$GITLAB_USER_EMAIL"
+
+      git add manifests ci/templates
+
+      git commit -m "Manifests updated"
+
+      git push -o ci.skip
+
+.deploy:
+  stage: deploy
+  image: $REGISTRY/cicd/argocd:${ARGOCD_DEPLOY_VERSION}
+  tags:
+    - qa
+    - apis
+  environment:
+    name: prod
+  variables:
+    RED: "\e[91m"
+    NC: "\e[39m"
+  script:
+    - source ${ENV_FILE}
+    - git fetch --all
+    - git reset --hard origin/${BRANCH}
+    - source ${ENV_FILE}
+    - url_host=`git remote get-url origin | sed -e "s/http:\/\/gitlab-ci-token:.*@//g"`
+    - url_host_http=`git remote get-url origin | sed -e "s/gitlab-ci-token:.*@//g"`
+    - envsubst < manifests/templates/common-configs/argocd-app.yaml > argocd-app.yaml
+    - sed -i "s|url_host_http|${url_host_http}|g" argocd-app.yaml
+    - cat argocd-app.yaml
+    - |
+      echo "[INFO] Deploying to ${RANCHER_HOST}"
+      argocd login $ARGOCD_SERVER --username=$ARGOCD_USERNAME --password=$ARGOCD_PASSWORD --grpc-web --insecure
+      if [[ "$(argocd app get ${K8S_DEPLOYMENT_NAME})" ]]; then
+        echo "1"
+        argocd app create -f argocd-app.yaml --upsert
+        argocd app sync ${K8S_DEPLOYMENT_NAME} --revision ${BRANCH} --insecure --force
+      else
+        if [[ "$(argocd proj list | grep ${K8S_DEPLOYMENT_NAME})" ]]; then
+          echo "2"
+          argocd app create -f argocd-app.yaml --upsert
+          argocd app sync ${K8S_DEPLOYMENT_NAME} --revision ${BRANCH} --insecure --force
+        else
+         echo "3"
+          argocd repo add ${url_host_http} --username argo --password $PROJECT_TOKEN --insecure-skip-server-verification --insecure --upsert
+          argocd proj create ${K8S_DEPLOYMENT_NAME} --dest ${CLUSTER_SERVER},${K8S_NAMESPACE} --src ${url_host_http} --insecure --upsert
+          argocd app create -f argocd-app.yaml --upsert
+          argocd app sync ${K8S_DEPLOYMENT_NAME} --revision ${BRANCH} --insecure --force
+        fi
+      fi
+
+.integration-test:
+  image: ${NODE_IMAGE}
+  stage: integration-test
+  cache:
+    key: "${CI_JOB_NAME}"
+    paths:
+      - /cache/npm.repository
+  environment:
+    name: qa
+  tags:
+    - qa
+    - apis
+  script:
+    - npm run test:int
+  artifacts:
+    reports:
+      junit:
+        - junit.xml
+
+.loadtest:
+  stage: loadtest
+  tags:
+    - qa
+    - apis
+  image:
+    name: $REGISTRY/cicd/jmeter:1.0
+    entrypoint: [""]
+  script:
+    - mkdir testresults
+    - /entrypoint.sh -n -t ./$JMETER_FILE -l ./testresults.log -e -o ./testresults
+  artifacts:
+    paths:
+      - testresults
+    expire_in: 1 week
+
+.pages:
+  stage: report
+  tags:
+    - qa
+    - apis
+  image: registrycsdqaap.comcel.com.gt/cicd/ubuntu:16.04
+  script:
+    - mv testresults public
+  artifacts:
+    paths:
+      - public
+    expire_in: 1 week
+  dependencies:
+    - loadtest
+
+.ticket:
+  stage: ticket
+  tags:
+    - qa
+    - apis
+  variables:
+    NS_ARGO: "argocd"
+    RED: "\e[91m"
+    NC: "\e[39m"
+  image:
+    entrypoint: ["/bin/bash", "-c"]
+    name: $REGISTRY/cicd/soapui:jre11-5.1.1-pro
+  script:
+    - |
+      /opt/SoapUI-Pro-5.1.1/bin/testrunner.sh -s ${TICKET_SR} -c ${TICKET_NUEVO_SR} -R "${TICKET_REPORT}" -E ${TICKET_ENVIRONMENT} \
+      -u ${SOAPUI_USERNAME} -p ${SOAPUI_PASSWORD} \
+      -P usuario="${TICKET_USUARIO}" -P ci="${TICKET_CI}" \
+      -P descripcion="despliegue de API ${K8S_APP_APPLICATION} ejecutado por ${GITLAB_USER_NAME}" -P ci="${TICKET_CI}" \
+      -P descripcionlong="Despliegue de API ${K8S_APP_APPLICATION} version ${K8S_APP_VERSION} ${K8S_CONTAINERS_IMAGE}. resultado sonarQube http://172.22.136.100:9000/dashboard?id=${SONARNAME}" \
+      ${TICKET_FILE}

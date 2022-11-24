@@ -1,0 +1,8 @@
+    - host: ${K8S_INGRESS_HOST_CUSTOM}
+      http:
+        paths:
+          - path: ${K8S_INGRESS_BASEPATH}
+            pathType: Prefix
+            backend:
+              serviceName: ${K8S_SERVICE_NAME}
+              servicePort: ${K8S_SERVICE_PORT}

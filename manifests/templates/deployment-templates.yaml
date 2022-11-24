@@ -1,0 +1,119 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${K8S_CONFIGMAP_NAME}
+data:
+  SPRING_PROFILES_ACTIVE: "${SPRING_PROFILES_ACTIVE_DEFAULT}"
+  JVM_ARGS: "${JVM_ARGS_DEFAULT}"
+---
+apiVersion: networking.k8s.io/v1beta1
+kind: Ingress
+metadata:
+  name: ${K8S_INGRESS_NAME}
+  annotations:
+    app.gitlab.com/app: ${CI_PROJECT_PATH_SLUG}
+    app.gitlab.com/env: ${K8S_APP_ENVIRONMENT}
+spec:
+  rules:
+    - host: ${K8S_INGRESS_HOST}
+      http:
+        paths:
+          - path: ${K8S_INGRESS_BASEPATH}
+            pathType: Prefix
+            backend:
+              serviceName: ${K8S_SERVICE_NAME}
+              servicePort: ${K8S_SERVICE_PORT}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    app.gitlab.com/app: ${CI_PROJECT_PATH_SLUG}
+    app.gitlab.com/env: ${K8S_APP_ENVIRONMENT}
+  labels:
+    app.tigo.com.gt/application: ${K8S_APP_APPLICATION}
+    app.tigo.com.gt/owner: ${K8S_APP_OWNER}
+    app.tigo.com.gt/project: ${K8S_APP_PROJECT}
+  name: ${K8S_SERVICE_NAME}
+spec:
+  ports:
+    - port: ${K8S_SERVICE_PORT}
+      protocol: TCP
+      targetPort: ${K8S_SERVICE_PORT}
+  selector:
+    app.tigo.com.gt/application: ${K8S_APP_APPLICATION}
+    app.tigo.com.gt/owner: ${K8S_APP_OWNER}
+    app.tigo.com.gt/project: ${K8S_APP_PROJECT}
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    app.gitlab.com/app: ${CI_PROJECT_PATH_SLUG}
+    app.gitlab.com/env: ${K8S_APP_ENVIRONMENT}
+  labels:
+    app.tigo.com.gt/application: ${K8S_APP_APPLICATION}
+    app.tigo.com.gt/owner: ${K8S_APP_OWNER}
+    app.tigo.com.gt/project: ${K8S_APP_PROJECT}
+    app.tigo.com.gt/environment: ${K8S_APP_ENVIRONMENT}
+    app.tigo.com.gt/version: ${K8S_APP_VERSION}
+    app.tigo.com.gt/release: ${K8S_APP_RELEASE}
+    app.tigo.com.gt/tier: ${K8S_APP_TIER}
+  name: ${K8S_DEPLOYMENT_NAME}
+spec:
+  replicas: ${K8S_APP_REPLICAS}
+  selector:
+    matchLabels:
+      app.tigo.com.gt/application: ${K8S_APP_APPLICATION}
+      app.tigo.com.gt/owner: ${K8S_APP_OWNER}
+      app.tigo.com.gt/project: ${K8S_APP_PROJECT}
+      app.tigo.com.gt/environment: ${K8S_APP_ENVIRONMENT}
+      app.tigo.com.gt/version: ${K8S_APP_VERSION}
+      app.tigo.com.gt/release: ${K8S_APP_RELEASE}
+      app.tigo.com.gt/tier: ${K8S_APP_TIER}
+  template:
+    metadata:
+      annotations:
+        app.gitlab.com/app: ${CI_PROJECT_PATH_SLUG}
+        app.gitlab.com/env: ${K8S_APP_ENVIRONMENT}
+      labels:
+        app.tigo.com.gt/application: ${K8S_APP_APPLICATION}
+        app.tigo.com.gt/owner: ${K8S_APP_OWNER}
+        app.tigo.com.gt/project: ${K8S_APP_PROJECT}
+        app.tigo.com.gt/environment: ${K8S_APP_ENVIRONMENT}
+        app.tigo.com.gt/version: ${K8S_APP_VERSION}
+        app.tigo.com.gt/release: ${K8S_APP_RELEASE}
+        app.tigo.com.gt/tier: ${K8S_APP_TIER}
+    spec:
+      containers:
+        - image: ${K8S_CONTAINERS_IMAGE}
+          ports:
+            - name: http
+              containerPort: ${K8S_SERVICE_PORT}
+          imagePullPolicy: IfNotPresent
+          name: ${K8S_CONTAINERS_NAME}
+          livenessProbe:
+            tcpSocket:
+              port: ${K8S_SERVICE_PORT}
+            initialDelaySeconds: ${DELAY}
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: ${K8S_SERVICE_PORT}
+            initialDelaySeconds: ${DELAY}
+            periodSeconds: 10
+          envFrom:
+            - configMapRef:
+                name: ${K8S_CONFIGMAP_NAME}
+          resources:
+            requests:
+              memory: "${K8S_REQUESTS_MEMORY}"
+              cpu: "${K8S_REQUESTS_CPU}"
+            limits:
+              memory: "${K8S_LIMITS_MEMORY}"
+              cpu: "${K8S_LIMITS_CPU}"
+      imagePullSecrets:
+        - name: regcred
+      nodeSelector:
+        node.tigo.com.gt/${K8S_NODE_RACK}: "true"

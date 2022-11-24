@@ -1,0 +1,155 @@
+check qa rancher:
+  extends: .check rancher
+  variables:
+    RED: "\e[91m"
+    NC: "\e[39m"
+    YELLOW: "\e[93m"
+    KUBECONFIG: ".kube/config"
+    ENV_FILE: "ci/templates/qa/.env"
+  tags:
+    - qa
+    - apis
+  only:
+    refs:
+      - qa
+    variables:
+      - $TARGET_PIPELINE =~ /qa/
+
+check qa registry:
+  extends: .check registry
+  variables:
+    RED: "\e[31m"
+    GREEN: "\e[32m"
+    NC: "\e[39m"
+    ENV_FILE: "ci/templates/qa/.env"
+  tags:
+    - qa
+    - apis
+  only:
+    refs:
+      - qa
+    variables:
+      - $TARGET_PIPELINE =~ /qa/
+
+analyze qa:
+  extends: .analyze
+  variables:
+    SONAR_USER_HOME: "${CI_PROJECT_DIR}/.sonar"
+    ENV_FILE: "ci/templates/qa/.env"
+  tags:
+    - qa
+    - apis
+  only:
+    refs:
+      - qa
+    variables:
+      - $TARGET_PIPELINE =~ /qa/
+
+policy-control qa:
+  extends: .policy-control
+  tags:
+    - qa
+    - apis
+  only:
+    refs:
+      - qa
+    variables:
+      - $TARGET_PIPELINE =~ /qa/
+
+.unit-test qa:
+  extends: .unit-test
+  tags:
+    - qa
+    - apis
+  only:
+    - qa
+  only:
+    refs:
+      - qa
+    variables:
+      - $TARGET_PIPELINE =~ /qa/
+
+package qa:
+  extends: .package
+  tags:
+    - qa
+    - apis
+  variables:
+    ENV_FILE: "ci/templates/qa/.env"
+  only:
+    refs:
+      - qa
+    variables:
+      - $TARGET_PIPELINE =~ /qa/
+
+build qa:
+  extends: .build
+  tags:
+    - qa
+    - apis
+  variables:
+    ENV_FILE: "ci/templates/qa/.env"
+  only:
+    refs:
+      - qa
+    variables:
+      - $TARGET_PIPELINE =~ /qa/
+
+deploy qa:
+  extends: .deploy
+  tags:
+    - qa
+    - apis
+  variables:
+    RED: "\e[91m"
+    NC: "\e[39m"
+    ENV_FILE: "ci/templates/qa/.env"
+  only:
+    refs:
+      - qa
+    variables:
+      - $TARGET_PIPELINE =~ /qa/
+
+.integration-test qa:
+  extends: .integration-test
+  variables:
+    RED: "\e[91m"
+    NC: "\e[39m"
+    ENV_FILE: "ci/templates/qa/.env"
+  tags:
+    - qa
+    - apis
+  only:
+    - qa
+  only:
+    refs:
+      - qa
+    variables:
+      - $TARGET_PIPELINE =~ /qa/
+
+.loadtest qa:
+  extends: .loadtest
+  variables:
+    RED: "\e[91m"
+    NC: "\e[39m"
+    ENV_FILE: "ci/templates/qa/.env"
+  only:
+    refs:
+      - qa
+    variables:
+      - $TARGET_PIPELINE =~ /qa/
+
+.pages qa:
+  extends: .pages
+  tags:
+    - qa
+    - apis
+  variables:
+    RED: "\e[91m"
+    NC: "\e[39m"
+    ENV_FILE: "ci/templates/qa/.env"
+  only:
+    refs:
+      - qa
+    variables:
+      - $TARGET_PIPELINE =~ /qa/

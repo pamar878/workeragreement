@@ -1,0 +1,119 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mock-api-configmap
+data:
+  SPRING_PROFILES_ACTIVE: "qa"
+  JVM_ARGS: "-Xms128m -Xmx768m"
+---
+apiVersion: networking.k8s.io/v1beta1
+kind: Ingress
+metadata:
+  name: mock-api-ingress
+  annotations:
+    app.gitlab.com/app: dbe-agreementrenew-workeragreementrenewmanagement
+    app.gitlab.com/env: qa
+spec:
+  rules:
+    - host: apis.apps-hiperion-qa.tigo.com.gt
+      http:
+        paths:
+          - path: /v1/mockapi
+            pathType: Prefix
+            backend:
+              serviceName: mock-api-service
+              servicePort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    app.gitlab.com/app: dbe-agreementrenew-workeragreementrenewmanagement
+    app.gitlab.com/env: qa
+  labels:
+    app.tigo.com.gt/application: mock-api
+    app.tigo.com.gt/owner: dsd
+    app.tigo.com.gt/project: digital
+  name: mock-api-service
+spec:
+  ports:
+    - port: 8080
+      protocol: TCP
+      targetPort: 8080
+  selector:
+    app.tigo.com.gt/application: mock-api
+    app.tigo.com.gt/owner: dsd
+    app.tigo.com.gt/project: digital
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    app.gitlab.com/app: dbe-agreementrenew-workeragreementrenewmanagement
+    app.gitlab.com/env: qa
+  labels:
+    app.tigo.com.gt/application: mock-api
+    app.tigo.com.gt/owner: dsd
+    app.tigo.com.gt/project: digital
+    app.tigo.com.gt/environment: qa
+    app.tigo.com.gt/version: v1.0.0
+    app.tigo.com.gt/release: stable
+    app.tigo.com.gt/tier: backend
+  name: mock-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.tigo.com.gt/application: mock-api
+      app.tigo.com.gt/owner: dsd
+      app.tigo.com.gt/project: digital
+      app.tigo.com.gt/environment: qa
+      app.tigo.com.gt/version: v1.0.0
+      app.tigo.com.gt/release: stable
+      app.tigo.com.gt/tier: backend
+  template:
+    metadata:
+      annotations:
+        app.gitlab.com/app: dbe-agreementrenew-workeragreementrenewmanagement
+        app.gitlab.com/env: qa
+      labels:
+        app.tigo.com.gt/application: mock-api
+        app.tigo.com.gt/owner: dsd
+        app.tigo.com.gt/project: digital
+        app.tigo.com.gt/environment: qa
+        app.tigo.com.gt/version: v1.0.0
+        app.tigo.com.gt/release: stable
+        app.tigo.com.gt/tier: backend
+    spec:
+      containers:
+        - image: registry-hiperion-qa.tigo.com.gt/apis/mock-api:77824c85d0c02adc10b0f933d2e04c16111d3a2b
+          ports:
+            - name: http
+              containerPort: 8080
+          imagePullPolicy: IfNotPresent
+          name: mock-api
+          livenessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 10
+          envFrom:
+            - configMapRef:
+                name: mock-api-configmap
+          resources:
+            requests:
+              memory: "378Mi"
+              cpu: "200m"
+            limits:
+              memory: "512Mi"
+              cpu: "750m"
+      imagePullSecrets:
+        - name: regcred
+      nodeSelector:
+        node.tigo.com.gt/digital: "true"

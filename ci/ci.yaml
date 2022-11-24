@@ -1,0 +1,42 @@
+include:
+  - local: 'ci/templates/.ci.jobs.yaml'
+  - local: 'ci/templates/dev/ci-dev.yaml'
+  - local: 'ci/templates/qa/ci-qa.yaml'
+  - local: 'ci/templates/frj/frj.ci.prod.yaml'
+  - local: 'ci/templates/scr/scr.ci.prod.yaml'
+
+variables:
+  TARGET_PIPELINE: "dev,qa,frj,scr"
+
+stages:
+  - .pre
+  - analyze
+  - unit-test
+  - policy-test
+  - package
+  - build
+  - promote
+  - deploy
+  - integration-test
+  - loadtest
+  - report
+  - ticket
+
+repo commit:
+  extends: .repo commit
+  tags:
+    - dev
+    - dbe
+  only:
+    refs:
+      - dev
+
+repo commit and tag:
+  extends: .repo tag
+  tags:
+    - qa
+    - dbe
+  variables:
+    BRANCH: master
+  only:
+    - master

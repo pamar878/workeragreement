@@ -1,0 +1,86 @@
+check frj rancher:
+  extends: .check rancher
+  variables:
+    ENV_FILE: "ci/templates/frj/.env"
+  tags:
+    - qa
+    - apis
+  only:
+    refs:
+      - master
+    variables:
+      - $TARGET_PIPELINE =~ /frj/
+
+check frj registry:
+  extends: .check registry
+  variables:
+    ENV_FILE: "ci/templates/frj/.env"
+  tags:
+    - qa
+    - apis
+  only:
+    refs:
+      - master
+    variables:
+      - $TARGET_PIPELINE =~ /frj/
+
+package frj:
+  extends: .package
+  tags:
+    - qa
+    - apis
+  variables:
+    ENV_FILE: "ci/templates/frj/.env"
+  only:
+    refs:
+      - master
+    variables:
+      - $TARGET_PIPELINE =~ /frj/
+
+build frj:
+  extends: .build
+  variables:
+    ENV_FILE: "ci/templates/frj/.env"
+  tags:
+    - qa
+    - apis
+  only:
+    refs:
+      - master
+    variables:
+      - $TARGET_PIPELINE =~ /frj/
+
+deploy frj:
+  extends: .deploy
+  tags:
+    - qa
+    - apis
+  variables:
+    ENV_FILE: "ci/templates/frj/.env"
+  only:
+    refs:
+      - master
+    variables:
+      - $TARGET_PIPELINE =~ /frj/
+
+ticket frj:
+  extends: .ticket
+  tags:
+    - qa
+    - apis
+  variables:
+    ENV_FILE: "ci/templates/frj/.env"
+  script:
+    - source ${ENV_FILE}
+    - |
+      /opt/SoapUI-Pro-5.1.1/bin/testrunner.sh -s ${TICKET_SR} -c ${TICKET_NUEVO_SR} -R "${TICKET_REPORT}" -E ${TICKET_ENVIRONMENT} \
+      -u ${SOAPUI_USERNAME} -p ${SOAPUI_PASSWORD} \
+      -P usuario="${TICKET_USUARIO}" -P ci="${TICKET_CI}" \
+      -P descripcion="despliegue de API ${K8S_APP_APPLICATION} ejecutado por ${GITLAB_USER_NAME}" -P ci="${TICKET_CI}" \
+      -P descripcionlong="Despliegue de API ${K8S_APP_APPLICATION} version ${K8S_APP_VERSION} ${K8S_CONTAINERS_IMAGE}. resultado sonarQube ${SONAR_HOST}dashboard?id=${SONARNAME}" \
+      ${TICKET_FILE}
+  only:
+    refs:
+      - master
+    variables:
+      - $TARGET_PIPELINE =~ /frj/

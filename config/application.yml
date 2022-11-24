@@ -1,0 +1,56 @@
+server:
+  port: 8282
+  servlet:
+    context-path: /v1.0/
+spring:
+  jpa:
+    properties:
+      hibernate:
+        temp:
+          use_jdbc_metadata_defaults: false
+    database-platform: org.hibernate.dialect.Oracle12cDialect
+      
+    data:
+      repositories:
+        enabled: true
+    hibernate:
+      ddl-auto: none
+      show-sql: true
+  datasource:
+    url: jdbc:oracle:thin:@10.8.121.28:1521/DBMISC
+    username: workeragreement
+    password: desaworker22
+  main:
+    banner-mode: OFF
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "info,health"   
+
+rabbit:
+   host: "172.22.91.218"
+   port: "5672"
+   username: "user_temporal"
+   virtualhost: "temporal"
+   password: "user_temporal"
+   queue-response-name: "worker.request.queue"
+   queue-read-time: 5000
+
+logger:
+    enable:
+        data:true
+
+externalServices:
+   loginHiperionUrl: "https://api-gateway-hiperion-dev.tigo.com.gt/api/agreementmanagement/oauth2/token"
+   queryContract: "https://api-gateway-hiperion-dev.tigo.com.gt/api/agreementmanagement/agreement"
+   createContract: "https://api-gateway-hiperion-dev.tigo.com.gt/api/agreementmanagement/agreement"
+   clientId: "ABH7tXiXu5j3ZQ8eZNhWWiJrYqpUmVJY"
+   client_secret: "eCd1GmIaIKcem2otg36lDHu4po3MO2Zj"
+   grant_type: "client_credentials"
+   scope: "email"
+   
+logging:
+  pattern:
+    console: "%d{dd/MMM/yyyy HH:mm:ss,SSS}\t%-5level\t%logger{36}\t%msg\t%X{name}\t%X{hostname}\t%X{apiKey}\t%X{uri}\t%X{responseCode}\t%X{responseTime}\t%X{clientIP}\t%X{pid}\t%X{level}\t%X{msg}\t%X{time}\t%X{v}%n"

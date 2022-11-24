@@ -1,0 +1,15 @@
+/target
+/src/doc
+/src/test
+/bin
+.idea
+.classpath
+.factorypath
+.project
+.settings/
+.mvn
+target
+!HELP.md
+mvnw
+mvnw.cmd
+.mvn/wrapper

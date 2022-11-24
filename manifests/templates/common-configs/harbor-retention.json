@@ -1,0 +1,71 @@
+{
+    "rules": [
+      {
+        "id":0,
+        "priority":0,
+        "disabled":false,
+        "action":"retain",
+        "template":"latestPulledN",
+        "params":{
+           "latestPulledN":2
+        },
+        "tag_selectors":[
+           {
+              "kind":"doublestar",
+              "decoration":"matches",
+              "pattern":"**",
+              "extras":"{\"untagged\":true}"
+           }
+        ],
+        "scope_selectors":{
+           "repository":[
+              {
+                 "kind":"doublestar",
+                 "decoration":"repoMatches",
+                 "pattern":"**",
+                 "extras":""
+              }
+           ]
+        }
+     },
+      {
+        "id":0,
+        "priority":0,
+        "disabled":false,
+        "action":"retain",
+        "template":"nDaysSinceLastPull",
+        "params":{
+           "nDaysSinceLastPull":2
+        },
+        "tag_selectors":[
+           {
+              "kind":"doublestar",
+              "decoration":"matches",
+              "pattern":"**",
+              "extras":"{\"untagged\":true}"
+           }
+        ],
+        "scope_selectors":{
+           "repository":[
+              {
+                 "kind":"doublestar",
+                 "decoration":"repoMatches",
+                 "pattern":"**",
+                 "extras":""
+              }
+           ]
+        }
+     }
+    ],
+    "scope": {
+      "level": "project",
+      "ref": "${REG_ID}"
+    },
+    "trigger": {
+      "kind": "Schedule",
+      "settings": {
+        "cron": "0 0 0 * * *"
+      }
+    },
+    "algorithm": "or"
+  }

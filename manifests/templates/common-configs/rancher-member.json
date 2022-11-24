@@ -1,0 +1,10 @@
+{
+"groupId": "",
+"groupPrincipalId": "",
+"name": "",
+"namespaceId": "",
+"projectId": "${PROJECT_ID}",
+"roleTemplateId": "project-owner",
+"userId": "${USER_ID}",
+"userPrincipalId": ""
+}

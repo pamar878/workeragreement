@@ -1,0 +1,14 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+labels:
+metadata:
+  name: ${K8S_DEPLOYMENT_NAME}
+spec:
+  destination:
+    namespace: ${K8S_NAMESPACE}
+    server: '$CLUSTER_SERVER'
+  source:
+    path: ${ARGOCD_PATH}
+    repoURL: 'url_host_http'
+    targetRevision: ${BRANCH}
+  project: ${K8S_DEPLOYMENT_NAME}

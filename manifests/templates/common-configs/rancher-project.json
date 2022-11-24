@@ -1,0 +1,4 @@
+{
+    "clusterId": "${PROJECT_ID}",
+    "name": "${NAME}"
+}
